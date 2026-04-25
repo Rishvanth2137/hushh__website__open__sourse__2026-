@@ -80,14 +80,13 @@ export class GeminiService {
    */
   async connect(persona: UserPersona = 'Everyday Investor') {
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-      if (!apiKey) {
-        console.error("Gemini API Key not found");
-        this.config.onStatusChange("API Key Missing");
-        this.config.onConnectionStateChange(ConnectionState.ERROR);
-        return;
-      }
-      this.ai = new GoogleGenAI({ apiKey });
+      // The Gemini Live API requires a WebSocket connection which cannot be securely proxied
+      // via standard Vercel serverless functions without exposing the API key to the frontend.
+      // Temporarily disabled until a secure WebSocket backend or true ephemeral tokens are implemented.
+      console.error("Gemini Live API is disabled for security reasons (requires secure WebSocket proxy).");
+      this.config.onStatusChange("Service Temporarily Unavailable");
+      this.config.onConnectionStateChange(ConnectionState.ERROR);
+      return;
 
       this.config.onConnectionStateChange(ConnectionState.CONNECTING);
       this.config.onStatusChange(`Initializing ${persona} Protocol...`);

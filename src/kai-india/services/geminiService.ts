@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+
 import { MarketData, AdvisorResult, MarketItem } from "../types";
 
 // Helper to sanitize JSON strings if the model returns markdown code blocks
@@ -23,50 +23,43 @@ const isValidMarketItem = (item: MarketItem): boolean => {
   return true;
 };
 
-let aiClient: GoogleGenAI | null = null;
-
-const getAiClient = (): GoogleGenAI => {
-  if (aiClient) {
-    return aiClient;
-  }
-
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error("Kai India is unavailable because VITE_GEMINI_API_KEY is not configured.");
-  }
-
-  aiClient = new GoogleGenAI({ apiKey });
-  return aiClient;
-};
-
-// Retry wrapper for API calls with exponential backoff
+// Retry wrapper for API calls with exponential backoff via proxy
 const generateWithRetry = async (model: string, prompt: string, tools?: any[]) => {
   let retries = 3;
   let delay = 2000;
-  const ai = getAiClient();
 
   while (true) {
     try {
-      return await ai.models.generateContent({
-        model,
-        contents: prompt,
-        config: tools ? { tools } : undefined
+      const response = await fetch('/api/gemini-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model,
+          contents: prompt,
+          config: tools ? { tools } : undefined
+        })
       });
-    } catch (error: any) {
-      const isQuotaError = error?.status === 429 || 
-                           error?.code === 429 || 
-                           error?.message?.includes('429') || 
-                           error?.message?.includes('quota') ||
-                           error?.message?.includes('RESOURCE_EXHAUSTED');
 
-      if (isQuotaError && retries > 0) {
-        console.warn(`Quota limit hit (429). Retrying in ${delay}ms... (${retries} attempts left)`);
+      if (!response.ok) {
+        if (response.status === 429 && retries > 0) {
+          console.warn(`Proxy reported quota limit (429). Retrying in ${delay}ms... (${retries} attempts left)`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          retries--;
+          delay *= 2;
+          continue;
+        }
+        throw new Error(`Proxy error: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error: any) {
+      if (retries > 0) {
+        console.warn(`Request failed. Retrying in ${delay}ms... (${retries} attempts left)`);
         await new Promise(resolve => setTimeout(resolve, delay));
         retries--;
         delay *= 2;
         continue;
       }
-      
       throw error;
     }
   }

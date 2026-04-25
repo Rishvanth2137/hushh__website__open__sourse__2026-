@@ -56,12 +56,14 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
     let shouldSettleLoading = true;
     try {
       if (status === 'booting') {
+        console.log('[ProtectedRoute] Auth still booting', { pathname: location.pathname });
         setIsLoading(true);
         shouldSettleLoading = false;
         return;
       }
 
       if (!config.supabaseClient) {
+        console.error('[ProtectedRoute] Supabase client not configured');
         navigate(
           buildLoginRedirectPath(location.pathname, location.search, location.hash),
           { replace: true }
@@ -71,12 +73,18 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
       const user = session?.user;
       if (!user) {
+        console.log('[ProtectedRoute] No user session, redirecting to login', {
+          pathname: location.pathname,
+          status,
+        });
         navigate(
           buildLoginRedirectPath(location.pathname, location.search, location.hash),
           { replace: true }
         );
         return;
       }
+
+      console.log('[ProtectedRoute] Fetching onboarding progress', { userId: user.id });
 
       const onboardingData = await fetchResolvedOnboardingProgress(
         config.supabaseClient,
@@ -95,20 +103,33 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
           !isOnOnboardingPage &&
           !(isInvestorProfileAlias && financialLinkStatus !== 'pending')
         ) {
+          console.log('[ProtectedRoute] Onboarding not complete, redirecting to financial link', {
+            userId: user.id,
+          });
           navigate(FINANCIAL_LINK_ROUTE, { replace: true });
           return;
         }
 
         if (!isOnFinancialLinkPage && financialLinkStatus === 'pending') {
+          console.log('[ProtectedRoute] Financial link pending, redirecting', {
+            userId: user.id,
+          });
           navigate(FINANCIAL_LINK_ROUTE, { replace: true });
           return;
         }
       }
 
-      console.log('[ProtectedRoute] Authorization check passed');
+      console.log('[ProtectedRoute] Authorization check passed', {
+        userId: user.id,
+        pathname: location.pathname,
+      });
       setIsAuthorized(true);
     } catch (error) {
-      console.error("Error checking auth:", error);
+      console.error('[ProtectedRoute] Error checking auth:', {
+        error: error instanceof Error ? error.message : String(error),
+        pathname: location.pathname,
+        status,
+      });
       navigate(
         buildLoginRedirectPath(location.pathname, location.search, location.hash),
         { replace: true }

@@ -1,10 +1,17 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
-// CORS headers for browser requests
+// Production-ready CORS headers
+// Use wildcard in development, restrict to Vercel domain in production
+const getOrigin = () => {
+  const isProd = Deno.env.get("ENVIRONMENT") === "production";
+  return isProd ? "https://hushh.ai" : "*";
+};
+
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Origin": getOrigin(),
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  "Access-Control-Allow-Credentials": "true",
 };
 
 // Stock symbols to fetch - the hushh 27 alpha bets watchlist
@@ -103,8 +110,21 @@ async function fetchAllQuotes(apiKey: string): Promise<StockQuote[]> {
 }
 
 serve(async (req) => {
+  // Log CORS request details for debugging
+  const origin = req.headers.get("origin");
+  const requestId = crypto.randomUUID();
+  const logContext = {
+    requestId,
+    method: req.method,
+    origin,
+    timestamp: new Date().toISOString(),
+  };
+
+  console.log("[stock-quotes] Request received:", logContext);
+
   // Handle CORS preflight request
   if (req.method === "OPTIONS") {
+    console.log("[stock-quotes] CORS preflight OK:", logContext);
     return new Response("ok", { headers: corsHeaders });
   }
 
@@ -113,11 +133,12 @@ serve(async (req) => {
     const finnhubApiKey = Deno.env.get("FINNHUB_API_KEY");
     
     if (!finnhubApiKey) {
-      console.error("FINNHUB_API_KEY not configured");
+      console.error("[stock-quotes] FINNHUB_API_KEY not configured:", logContext);
       return new Response(
         JSON.stringify({ 
           error: "Stock API not configured",
-          quotes: [] 
+          quotes: [],
+          requestId,
         }),
         { 
           status: 500,
@@ -135,17 +156,18 @@ serve(async (req) => {
         if (body.symbols && Array.isArray(body.symbols)) {
           symbolsToFetch = body.symbols;
         }
-      } catch {
+      } catch (parseErr) {
+        console.warn("[stock-quotes] Failed to parse POST body:", logContext, parseErr);
         // Use default symbols if body parsing fails
       }
     }
 
-    console.log(`Fetching quotes for ${symbolsToFetch.length} symbols...`);
+    console.log(`[stock-quotes] Fetching quotes for ${symbolsToFetch.length} symbols...`, logContext);
     
     // Fetch all quotes
     const quotes = await fetchAllQuotes(finnhubApiKey);
     
-    console.log(`Successfully fetched ${quotes.length} quotes`);
+    console.log(`[stock-quotes] Successfully fetched ${quotes.length} quotes (${symbolsToFetch.length} requested)`, logContext);
 
     return new Response(
       JSON.stringify({
@@ -153,19 +175,22 @@ serve(async (req) => {
         quotes,
         fetchedAt: new Date().toISOString(),
         count: quotes.length,
+        requestId,
       }),
       {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
   } catch (error) {
-    console.error("Error in stock-quotes function:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("[stock-quotes] Unhandled error:", logContext, errorMessage);
     
     return new Response(
       JSON.stringify({
         error: "Failed to fetch stock quotes",
-        message: error instanceof Error ? error.message : "Unknown error",
+        message: errorMessage,
         quotes: [],
+        requestId,
       }),
       {
         status: 500,

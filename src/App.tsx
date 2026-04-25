@@ -76,7 +76,7 @@ import DocumentViewerPage from './pages/document-viewer';
 import NDAAdminPage from './pages/nda-admin';
 import { AuthSessionProvider, useAuthSession } from './auth/AuthSessionProvider';
 import AuthRequiredRoute from './components/AuthRequiredRoute';
-import HushhHackathonPage from './pages/hushh-hackathon/ui';
+import HushhHackathonPage from './pages/hushh-hackathon';
 import MetricsPage from './pages/metrics';
 
 const KaiIndiaApp = React.lazy(() => import('./kai-india/pages'));
@@ -358,6 +358,7 @@ function App() {
             <Route path='/developer-docs' element={<DeveloperDocsPage />} />
             <Route path='/metrics' element={<MetricsPage />} />
             <Route path='/metric' element={<Navigate to='/metrics' replace />} />
+            <Route path='/hushh-hackathon' element={<HushhHackathonPage />} />
             <Route path='/hushh-ai' element={<HushhAIPage />} />
             <Route path='/hushh-ai/login' element={<HushhAILoginPage />} />
             <Route path='/hushh-ai/signup' element={<HushhAISignupPage />} />

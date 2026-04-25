@@ -46,7 +46,8 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
     if (isChecking) {
       bootTimeoutRef.current = setTimeout(() => {
         console.warn(
-          '[GlobalNDAGate] Boot timeout reached (8s). Forcing access check to resolve.'
+          '[GlobalNDAGate] Boot timeout reached (8s). Forcing access check to resolve.',
+          { pathname: location.pathname, status }
         );
         setIsChecking(false);
         // Allow access to public/guest routes; authenticated-only routes
@@ -64,7 +65,7 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
         bootTimeoutRef.current = null;
       }
     };
-  }, [isChecking, location.pathname]);
+  }, [isChecking, location.pathname, status]);
 
   useEffect(() => {
     let cancelled = false;
@@ -72,9 +73,16 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
     const checkNDA = async () => {
       const pathname = location.pathname;
 
+      console.log('[GlobalNDAGate] Checking NDA status', {
+        pathname,
+        status,
+        sessionExists: !!session?.user?.id,
+      });
+
       // Always allow auth-related routes (login, signup, sign-nda, callback)
       if (isGuestAuthRoute(pathname)) {
         if (!cancelled) {
+          console.log('[GlobalNDAGate] Guest auth route — allowing access', { pathname });
           setIsChecking(false);
           setHasSignedNDA(true);
         }
@@ -85,6 +93,7 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
       // These must be accessible by ANYONE — authenticated or not, NDA or not
       if (isPublicSharedProfileRoute(pathname)) {
         if (!cancelled) {
+          console.log('[GlobalNDAGate] Public profile route — allowing access', { pathname });
           setIsChecking(false);
           setHasSignedNDA(true);
         }
@@ -94,6 +103,7 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
       // If no session (not logged in), allow access to public pages
       if (status === 'booting') {
         if (!cancelled) {
+          console.log('[GlobalNDAGate] Auth still booting...');
           setIsChecking(true);
           setHasSignedNDA(null);
         }
@@ -102,6 +112,7 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
 
       if (!session?.user?.id || status !== 'authenticated') {
         if (isAuthenticatedAccountRoute(pathname)) {
+          console.log('[GlobalNDAGate] Not authenticated, redirecting to login', { pathname });
           navigate(
             buildLoginRedirectPath(
               location.pathname,
@@ -115,6 +126,7 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
 
         // Allow public marketing and guest-accessible routes for non-authenticated users
         if (!cancelled) {
+          console.log('[GlobalNDAGate] Non-authenticated user on public route — allowing', { pathname });
           setIsChecking(false);
           setHasSignedNDA(canGuestAccessRoute(pathname));
         }
@@ -129,6 +141,12 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
       // USER IS AUTHENTICATED - Check NDA status (with 5s timeout)
       try {
         const NDA_CHECK_TIMEOUT_MS = 5000;
+        
+        console.log('[GlobalNDAGate] Authenticated user — checking NDA status', {
+          userId: session.user.id,
+          pathname,
+        });
+
         const ndaResult = await Promise.race([
           checkNDAStatus(session.user.id),
           new Promise<null>((_, reject) =>
@@ -146,10 +164,17 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
         if (!ndaResult) {
           // Timeout fallback — allow access optimistically.
           // The NDA status will be rechecked on next navigation.
-          console.warn('[GlobalNDAGate] NDA check returned null, allowing access optimistically.');
+          console.warn('[GlobalNDAGate] NDA check returned null, allowing access optimistically.', {
+            userId: session.user.id,
+          });
           setHasSignedNDA(true);
           return;
         }
+
+        console.log('[GlobalNDAGate] NDA check complete', {
+          userId: session.user.id,
+          hasSignedNda: ndaResult.hasSignedNda,
+        });
 
         setHasSignedNDA(ndaResult.hasSignedNda);
 
@@ -157,6 +182,7 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
         if (!ndaResult.hasSignedNda) {
           // Store the intended destination for redirect after signing
           sessionStorage.setItem('nda_redirect_after', pathname);
+          console.log('[GlobalNDAGate] NDA not signed — redirecting to /sign-nda', { pathname });
           navigate('/sign-nda', { replace: true });
         }
       } catch (error) {
@@ -166,12 +192,17 @@ const GlobalNDAGate: React.FC<GlobalNDAGateProps> = ({ children }) => {
 
         // If the error is a timeout, allow access optimistically
         if (error instanceof Error && error.message === 'NDA check timed out') {
-          console.warn('[GlobalNDAGate] NDA check timed out after 5s. Allowing access optimistically.');
+          console.warn('[GlobalNDAGate] NDA check timed out after 5s. Allowing access optimistically.', {
+            userId: session.user.id,
+          });
           setHasSignedNDA(true);
           return;
         }
 
-        console.error('Error checking NDA status:', error);
+        console.error('[GlobalNDAGate] Error checking NDA status:', {
+          error: error instanceof Error ? error.message : String(error),
+          userId: session.user.id,
+        });
         // On non-timeout error, redirect to NDA page to be safe
         sessionStorage.setItem('nda_redirect_after', pathname);
         navigate('/sign-nda', { replace: true });

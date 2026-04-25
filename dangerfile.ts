@@ -39,6 +39,8 @@ const CONFIG = {
     /sk_live_[A-Za-z0-9]+/,  // Stripe live key
     /sk_test_[A-Za-z0-9]+/,  // Stripe test key
     /AKIA[A-Z0-9]{16}/,       // AWS Access Key
+    /VITE_GEMINI_API_KEY/i,   // Frontend exposed Gemini key
+    /VITE_OPENAI_API_KEY/i,   // Frontend exposed OpenAI key
   ],
   
   // Files that should trigger extra review

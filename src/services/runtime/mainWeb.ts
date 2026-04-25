@@ -3,6 +3,10 @@ import config from "../../resources/config/config";
 const DEFAULT_NDA_GENERATION_BASE_URL =
   "https://hushhtech-nda-generation-53407187172.us-central1.run.app";
 
+function isPlaceholderEnvValue(value: string): boolean {
+  return value.includes("YOUR_PROJECT_REF");
+}
+
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -36,8 +40,12 @@ export function getSupabaseStoragePublicUrl(
 
 export function getNdaGenerationBaseUrl(): string {
   const configuredBaseUrl = import.meta.env.VITE_NDA_GENERATION_URL?.trim();
+  const safeConfiguredBaseUrl =
+    configuredBaseUrl && !isPlaceholderEnvValue(configuredBaseUrl)
+      ? configuredBaseUrl
+      : "";
   return trimTrailingSlash(
-    configuredBaseUrl || DEFAULT_NDA_GENERATION_BASE_URL
+    safeConfiguredBaseUrl || DEFAULT_NDA_GENERATION_BASE_URL
   );
 }
 

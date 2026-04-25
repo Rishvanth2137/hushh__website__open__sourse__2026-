@@ -73,10 +73,17 @@ export default function Navbar() {
   const hideTicker = isOnboarding || isProfilePage;
 
   // Fetch real-time stock quotes (refreshes every 2 minutes for 27 stocks)
-  const { quotes, loading: quotesLoading, lastUpdated } = useStockQuotes(120000);
+  const { quotes, loading: quotesLoading, lastUpdated, error: quotesError } = useStockQuotes(120000);
 
   // quotes already includes fallback data from the hook, so we can use it directly
   const displayQuotes = quotes;
+
+  // Log stock quote errors for debugging (only in development or on first error)
+  useEffect(() => {
+    if (quotesError) {
+      console.warn('[Navbar] Stock quotes API error (using fallback data):', quotesError);
+    }
+  }, [quotesError]);
 
   useEffect(() => {
     const currentUserId = user?.id ?? null;
@@ -87,7 +94,19 @@ export default function Navbar() {
   }, [user?.id]);
 
   const handleLogout = async () => {
-    await signOut();
+    try {
+      await signOut();
+      console.log('[Navbar] Logged out successfully');
+    } catch (err) {
+      console.error('[Navbar] Logout error:', err);
+      toast({
+        title: 'Error',
+        description: 'Failed to log out. Please try again.',
+        status: 'error',
+        duration: 5000,
+        isClosable: true,
+      });
+    }
   };
 
   // Show welcome toast when a user is signed in (only once)
@@ -136,7 +155,10 @@ export default function Navbar() {
           .eq('user_id', user.id)
           .maybeSingle();
         setHushhCoins(data?.hushh_coins_awarded ?? 0);
-      } catch { setHushhCoins(0); }
+      } catch (err) {
+        console.error('[Navbar] Error fetching coins:', err);
+        setHushhCoins(0);
+      }
     };
     fetchCoins();
   }, [user?.id]);
@@ -206,6 +228,16 @@ export default function Navbar() {
       setShowScrollIndicator(needsScroll);
     }
   }, [isOpen]);
+
+  // Log navbar render for debugging
+  useEffect(() => {
+    console.log('[Navbar] Rendered', {
+      isAuthenticated,
+      hasQuotes: displayQuotes.length > 0,
+      quotesError,
+      status,
+    });
+  }, [isAuthenticated, displayQuotes.length, quotesError, status]);
 
   return (
     <>

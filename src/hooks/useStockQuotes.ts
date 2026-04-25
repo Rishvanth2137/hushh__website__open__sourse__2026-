@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 
 // Supabase URL for edge function
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || '';
@@ -179,52 +179,120 @@ export function useStockQuotes(refreshInterval = 120000) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const requestIdRef = useRef<string>('');
 
   const fetchAllQuotes = useCallback(async () => {
+    const requestId = crypto.randomUUID();
+    requestIdRef.current = requestId;
+
     try {
       setError(null);
 
       if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-        throw new Error('VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is not configured');
+        const msg = 'VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY is not configured';
+        console.error('[useStockQuotes] Configuration error:', { requestId, msg });
+        throw new Error(msg);
       }
+
+      console.log('[useStockQuotes] Fetching quotes...', { requestId, symbolCount: STOCK_SYMBOLS.length });
       
-      // Call Supabase edge function
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/stock-quotes`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'apikey': SUPABASE_ANON_KEY || '',
-        },
-        body: JSON.stringify({ symbols: STOCK_SYMBOLS }),
-      });
+      // Call Supabase edge function with timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-      if (!response.ok) {
-        throw new Error(`Failed to fetch quotes: ${response.status}`);
-      }
+      try {
+        const response = await fetch(`${SUPABASE_URL}/functions/v1/stock-quotes`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'apikey': SUPABASE_ANON_KEY || '',
+          },
+          body: JSON.stringify({ symbols: STOCK_SYMBOLS }),
+          signal: controller.signal,
+        });
 
-      const data: EdgeFunctionResponse = await response.json();
+        clearTimeout(timeoutId);
 
-      if (data.success && data.quotes.length > 0) {
-        // Map edge function response to our StockQuote format
-        const mappedQuotes: StockQuote[] = data.quotes.map(q => ({
-          symbol: q.symbol,
-          displaySymbol: STOCK_SHORT_SYMBOLS[q.symbol] || q.symbol,
-          name: STOCK_NAMES[q.symbol] || q.symbol,
-          currentPrice: q.currentPrice,
-          change: q.change || 0,
-          percentChange: q.percentChange || 0,
-          isUp: (q.percentChange || 0) >= 0,
-          logo: STOCK_LOGOS[q.symbol] || '',
-        }));
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => '(unable to read response)');
+          const msg = `Failed to fetch quotes: ${response.status} ${response.statusText}`;
+          console.error('[useStockQuotes] HTTP error:', { 
+            requestId, 
+            status: response.status,
+            statusText: response.statusText,
+            responseText: errorText,
+            url: response.url,
+          });
+          throw new Error(msg);
+        }
+
+        const data: EdgeFunctionResponse = await response.json();
+
+        if (!data.success && data.quotes.length === 0) {
+          console.warn('[useStockQuotes] API returned error response:', { 
+            requestId, 
+            error: data.error,
+            message: data.message || 'Unknown error',
+          });
+          // Return fallback data on API error
+          setQuotes(generateFallbackData());
+          setError(data.message || 'API returned no quotes');
+          setLoading(false);
+          return;
+        }
+
+        if (data.quotes.length > 0) {
+          // Map edge function response to our StockQuote format
+          const mappedQuotes: StockQuote[] = data.quotes.map(q => ({
+            symbol: q.symbol,
+            displaySymbol: STOCK_SHORT_SYMBOLS[q.symbol] || q.symbol,
+            name: STOCK_NAMES[q.symbol] || q.symbol,
+            currentPrice: q.currentPrice,
+            change: q.change || 0,
+            percentChange: q.percentChange || 0,
+            isUp: (q.percentChange || 0) >= 0,
+            logo: STOCK_LOGOS[q.symbol] || '',
+          }));
+          
+          console.log('[useStockQuotes] Successfully mapped quotes:', { 
+            requestId, 
+            count: mappedQuotes.length,
+            fetchedAt: data.fetchedAt,
+          });
+          
+          setQuotes(mappedQuotes);
+          setLastUpdated(new Date());
+          setError(null);
+        } else {
+          // No quotes returned, use fallback
+          console.warn('[useStockQuotes] No quotes in response, using fallback:', { requestId });
+          setQuotes(generateFallbackData());
+        }
+
+        setLoading(false);
+      } catch (fetchErr) {
+        clearTimeout(timeoutId);
         
-        setQuotes(mappedQuotes);
-        setLastUpdated(new Date());
+        if (fetchErr instanceof Error && fetchErr.name === 'AbortError') {
+          const msg = 'Stock quotes fetch timed out (10s)';
+          console.warn('[useStockQuotes] Request timeout:', { requestId, msg });
+          setError(msg);
+        } else {
+          const msg = fetchErr instanceof Error ? fetchErr.message : 'Network error';
+          console.error('[useStockQuotes] Fetch error:', { requestId, error: msg });
+          setError(msg);
+        }
+        
+        // Use fallback data on fetch error
+        setQuotes(generateFallbackData());
+        setLoading(false);
       }
-      setLoading(false);
     } catch (err) {
-      console.error('Error fetching stock quotes:', err);
-      setError('Failed to fetch stock quotes');
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      console.error('[useStockQuotes] Unhandled error:', { requestId, error: errorMsg });
+      setError(errorMsg);
+      setQuotes(generateFallbackData());
       setLoading(false);
     }
   }, []);

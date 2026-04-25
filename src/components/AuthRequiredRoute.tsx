@@ -23,6 +23,11 @@ const AuthRequiredRoute: React.FC<AuthRequiredRouteProps> = ({ children }) => {
   }
 
   if (status !== "authenticated" || !session?.user?.id) {
+    console.log('[AuthRequiredRoute] Not authenticated, redirecting to login', {
+      pathname: location.pathname,
+      status,
+      hasSession: !!session?.user?.id,
+    });
     return (
       <Navigate
         to={buildLoginRedirectPath(
